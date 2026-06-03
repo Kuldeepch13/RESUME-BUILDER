@@ -1,0 +1,112 @@
+{
+  "info": {
+    "name": "ATSForge API v1",
+    "_postman_id": "4c8d1a47-534a-4d83-81cb-atsforge000001",
+    "description": "Starter collection for authentication, resume authoring, AI analysis, export, sharing and billing.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "accessToken", "value": "" },
+    { "key": "resumeId", "value": "" },
+    { "key": "analysisId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/auth/register",
+            "body": { "mode": "raw", "raw": "{\"email\":\"creator@example.com\",\"password\":\"StrongPassword!2026\",\"displayName\":\"Career Creator\"}" }
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/auth/login",
+            "body": { "mode": "raw", "raw": "{\"email\":\"creator@example.com\",\"password\":\"StrongPassword!2026\"}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Resumes",
+      "item": [
+        {
+          "name": "Create Resume",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/resumes",
+            "body": { "mode": "raw", "raw": "{\"title\":\"Backend Engineer\",\"templateCode\":\"atlas\",\"targetRole\":\"Senior Java Engineer\"}" }
+          }
+        },
+        {
+          "name": "List Resumes",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/api/v1/resumes?page=0&size=20&sort=updatedAt,desc"
+          }
+        },
+        {
+          "name": "Export PDF",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/api/v1/resumes/{{resumeId}}/export?format=PDF"
+          }
+        }
+      ]
+    },
+    {
+      "name": "AI",
+      "item": [
+        {
+          "name": "Queue ATS Analysis",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }, { "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/api/v1/resumes/{{resumeId}}/analyses",
+            "body": { "mode": "raw", "raw": "{\"jobDescription\":\"Senior Java engineer with Spring Boot, PostgreSQL, AWS and observability experience.\"}" }
+          }
+        },
+        {
+          "name": "Get Analysis",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/api/v1/analyses/{{analysisId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sharing and Billing",
+      "item": [
+        {
+          "name": "Create Share Link",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/api/v1/resumes/{{resumeId}}/shares"
+          }
+        },
+        {
+          "name": "Start Pro Checkout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/api/v1/billing/checkout?interval=month"
+          }
+        }
+      ]
+    }
+  ]
+}
