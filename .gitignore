@@ -7,4 +7,33 @@ frontend/node_modules/
 frontend/dist/
 storage/
 .DS_Store
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
 
+# Eclipse files
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+# IntelliJ IDEA files
+*.iws
+*.iml
+*.ipr
+
+# NetBeans files
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+# Build outputs
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
