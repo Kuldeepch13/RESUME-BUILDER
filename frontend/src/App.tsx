@@ -1,4 +1,4 @@
-import { CSSProperties, FormEvent, useEffect, useRef, useState } from "react";
+﻿import { CSSProperties, FormEvent, useEffect, useRef, useState } from "react";
 import { Analysis, ApiClient, Resume, ResumeSection } from "./lib/api";
 
 const sampleSections: ResumeSection[] = [
@@ -29,41 +29,61 @@ const templates = [
   { name: "Signal", type: "Minimal", free: true, color: "#172334" },
 ];
 
+type RouteState = { page: string; id?: string };
+
+function parseRoute(hash: string): RouteState {
+  const normalized = (hash.startsWith("#") ? hash.slice(1) : hash).replace(/\/+$/, "") || "/";
+  const parts = normalized.split("/").filter(Boolean);
+  return parts.length === 0 ? { page: "/" } : { page: `/${parts[0]}`, id: parts[1] };
+}
+
 function App() {
   const [client] = useState(() => new ApiClient());
-  const [route, setRoute] = useState(location.hash.slice(1) || "/");
+  const [route, setRoute] = useState<RouteState>(() => parseRoute(window.location.hash));
   const [dark, setDark] = useState(false);
-  const [selectedResume, setSelectedResume] = useState<Resume>(sampleResume);
   const [signedIn, setSignedIn] = useState(client.authenticated());
 
   useEffect(() => {
-    const listen = () => setRoute(location.hash.slice(1) || "/");
-    window.addEventListener("hashchange", listen);
-    return () => window.removeEventListener("hashchange", listen);
+    const onHashChange = () => setRoute(parseRoute(window.location.hash));
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  const navigate = (path: string) => { location.hash = path; };
+  const navigate = (path: string) => {
+    window.location.hash = path;
+  };
+
+  const handleLogout = async () => {
+    await client.logout();
+    setSignedIn(false);
+    navigate("/");
+  };
+
+  const handleSignIn = () => setSignedIn(true);
 
   return (
     <div className={dark ? "app dark" : "app"}>
-      <Header route={route} signedIn={signedIn} dark={dark} setDark={setDark} navigate={navigate}
-        logout={() => { client.logout(); setSignedIn(false); navigate("/"); }} />
-      {route === "/" && <Landing navigate={navigate} />}
-      {route === "/login" && <Login client={client} navigate={navigate} onLogin={() => setSignedIn(true)} />}
-      {route === "/dashboard" && <Dashboard client={client} signedIn={signedIn} navigate={navigate}
-        edit={(resume) => { setSelectedResume(resume); navigate("/editor"); }} />}
-      {route === "/templates" && <Templates navigate={navigate} />}
-      {route === "/pricing" && <Pricing navigate={navigate} />}
-      {route === "/admin" && <Admin />}
-      {route === "/editor" && <Editor client={client} signedIn={signedIn} initial={selectedResume} />}
-      {route !== "/editor" && <Footer />}
+      <Header route={route.page} signedIn={signedIn} dark={dark} setDark={setDark} navigate={navigate} logout={handleLogout} />
+      {route.page === "/" && <Landing navigate={navigate} />}
+      {route.page === "/login" && <Login client={client} navigate={navigate} onLogin={handleSignIn} />}
+      {route.page === "/register" && <Register client={client} navigate={navigate} />}
+      {route.page === "/dashboard" && <Dashboard client={client} signedIn={signedIn} navigate={navigate} edit={resume => navigate(`/editor/${resume.id}`)} />}
+      {route.page === "/templates" && <Templates navigate={navigate} />}
+      {route.page === "/pricing" && <Pricing navigate={navigate} />}
+      {route.page === "/admin" && <Admin />}
+      {route.page === "/editor" && <Editor client={client} signedIn={signedIn} navigate={navigate} resumeId={route.id ?? "demo"} />}
+      {route.page !== "/editor" && <Footer />}
     </div>
   );
 }
 
 function Header({ route, signedIn, dark, setDark, navigate, logout }: {
-  route: string; signedIn: boolean; dark: boolean; setDark: (value: boolean) => void;
-  navigate: (path: string) => void; logout: () => void;
+  route: string;
+  signedIn: boolean;
+  dark: boolean;
+  setDark: (value: boolean) => void;
+  navigate: (path: string) => void;
+  logout: () => void;
 }) {
   return (
     <header className="topbar">
@@ -77,8 +97,7 @@ function Header({ route, signedIn, dark, setDark, navigate, logout }: {
       </nav>
       <div className="top-actions">
         <button className="theme-toggle" aria-label="Toggle color theme" onClick={() => setDark(!dark)}>{dark ? "Light" : "Dark"}</button>
-        {signedIn ? <button className="ghost" onClick={logout}>Sign out</button> :
-          <button className="ghost" onClick={() => navigate("/login")}>Sign in</button>}
+        {signedIn ? <button className="ghost" onClick={logout}>Sign out</button> : <button className="ghost" onClick={() => navigate("/login")}>Sign in</button>}
         <button className="primary compact" onClick={() => navigate(signedIn ? "/dashboard" : "/login")}>Build resume</button>
       </div>
     </header>
@@ -94,7 +113,7 @@ function Landing({ navigate }: { navigate: (path: string) => void }) {
           <h1>Craft a resume that gets <span>through the screen.</span></h1>
           <p className="hero-lead">Design beautiful, ATS-readable resumes with real-time guidance, job-match scoring, and writing that sounds like you on your best day.</p>
           <div className="hero-buttons">
-            <button className="primary" onClick={() => navigate("/editor")}>Start building free</button>
+            <button className="primary" onClick={() => navigate("/editor/demo")}>Start building free</button>
             <button className="secondary" onClick={() => navigate("/templates")}>Explore templates</button>
           </div>
           <div className="social-proof">
@@ -130,17 +149,23 @@ function Landing({ navigate }: { navigate: (path: string) => void }) {
 function Login({ client, navigate, onLogin }: { client: ApiClient; navigate: (path: string) => void; onLogin: () => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setBusy(true); setError("");
+    setBusy(true);
+    setError("");
     const data = new FormData(event.currentTarget);
     try {
       await client.login(String(data.get("email")), String(data.get("password")));
-      onLogin(); navigate("/dashboard");
+      onLogin();
+      navigate("/dashboard");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not sign in.");
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   }
+
   return (
     <main className="auth-wrap">
       <form className="auth-card" onSubmit={submit}>
@@ -152,47 +177,154 @@ function Login({ client, navigate, onLogin }: { client: ApiClient; navigate: (pa
         <button className="primary full" disabled={busy}>{busy ? "Signing in..." : "Sign in"}</button>
         <a className="google" href="/oauth2/authorization/google">Continue with Google</a>
         <p className="fine">New accounts are verified by email before resume data can be accessed.</p>
+        <p className="fine">Don’t have an account? <button type="button" className="ghost" onClick={() => navigate("/register")}>Register</button></p>
       </form>
     </main>
   );
 }
 
-function Dashboard({ client, signedIn, navigate, edit }: {
-  client: ApiClient; signedIn: boolean; navigate: (path: string) => void; edit: (resume: Resume) => void;
-}) {
-  const [resumes, setResumes] = useState<Resume[]>([sampleResume]);
-  useEffect(() => {
-    if (signedIn) client.listResumes().then(result => setResumes(result.content)).catch(() => setResumes([sampleResume]));
-  }, [client, signedIn]);
-  async function create() {
-    if (!signedIn) { edit(sampleResume); return; }
-    const resume = await client.createResume("Untitled Resume");
-    edit(resume);
+function Register({ client, navigate }: { client: ApiClient; navigate: (path: string) => void }) {
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    setMessage("");
+    const data = new FormData(event.currentTarget);
+    try {
+      await client.register(String(data.get("email")), String(data.get("password")), String(data.get("displayName")));
+      setMessage("Check your inbox to verify your email before signing in.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not register.");
+    } finally {
+      setBusy(false);
+    }
   }
+
+  return (
+    <main className="auth-wrap">
+      <form className="auth-card" onSubmit={submit}>
+        <p className="eyebrow">Create an account</p>
+        <h1>Join ATSForge</h1>
+        <label>Name<input name="displayName" placeholder="Ava Morgan" required /></label>
+        <label>Email<input name="email" type="email" placeholder="you@company.com" required /></label>
+        <label>Password<input name="password" type="password" placeholder="At least 12 characters" required minLength={12} /></label>
+        {error && <p className="error">{error}</p>}
+        {message && <p className="fine">{message}</p>}
+        <button className="primary full" disabled={busy}>{busy ? "Registering..." : "Create account"}</button>
+        <p className="fine">Already have an account? <button type="button" className="ghost" onClick={() => navigate("/login")}>Sign in</button></p>
+      </form>
+    </main>
+  );
+}
+
+function Dashboard({ client, signedIn, navigate, edit }: { client: ApiClient; signedIn: boolean; navigate: (path: string) => void; edit: (resume: Resume) => void; }) {
+  const [resumes, setResumes] = useState<Resume[]>([sampleResume]);
+  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      if (!signedIn) {
+        setResumes([sampleResume]);
+        return;
+      }
+      setLoading(true);
+      setError("");
+      try {
+        const result = await client.listResumes();
+        if (!active) return;
+        setResumes(result.content);
+      } catch (reason) {
+        if (active) setError(reason instanceof Error ? reason.message : "Could not load resumes.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    load();
+    return () => { active = false; };
+  }, [client, signedIn]);
+
+  async function create() {
+    if (!signedIn) {
+      navigate("/login");
+      return;
+    }
+    setBusy(true);
+    try {
+      const resume = await client.createResume("Untitled resume");
+      setResumes(current => [resume, ...current]);
+      edit(resume);
+      navigate(`/editor/${resume.id}`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not create resume.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function duplicate(resume: Resume) {
+    setBusy(true);
+    try {
+      const duplicateResume = await client.duplicateResume(resume.id);
+      setResumes(current => [duplicateResume, ...current]);
+      edit(duplicateResume);
+      navigate(`/editor/${duplicateResume.id}`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not duplicate resume.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(resume: Resume) {
+    if (!window.confirm(`Delete ${resume.title}? This cannot be undone.`)) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await client.deleteResume(resume.id);
+      setResumes(current => current.filter(item => item.id !== resume.id));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not delete resume.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="dashboard">
       <div className="dashboard-head">
         <div><p className="eyebrow">Workspace</p><h1>Your resumes</h1><p>Manage versions, tailoring and recruiter activity in one place.</p></div>
-        <button className="primary" onClick={create}>+ New resume</button>
+        <button className="primary" onClick={create} disabled={busy}>{signedIn ? "+ New resume" : "Sign in to save"}</button>
       </div>
       {!signedIn && <div className="demo-banner">Preview workspace mode. <button onClick={() => navigate("/login")}>Sign in</button> to persist drafts and exports.</div>}
-      <section className="stat-grid">
-        <Metric label="Resume views" value="148" change="+24%" />
-        <Metric label="Downloads" value="31" change="+8%" />
-        <Metric label="Average ATS score" value="89" change="+6 pts" />
-        <Metric label="AI improvements" value="46" change="this month" />
-      </section>
-      <section className="resume-grid">
-        {resumes.map(resume => (
-          <article className="resume-tile" key={resume.id} onClick={() => edit(resume)}>
-            <div className="mini-page"><div></div><b></b><span></span><span></span><span></span></div>
-            <h3>{resume.title}</h3>
-            <p>{resume.targetRole || "No target role"} <em>{resume.status}</em></p>
-            <footer><span>v{resume.versionNumber}</span><button>Edit</button></footer>
-          </article>
-        ))}
-        <article className="create-tile" onClick={create}><strong>+</strong><p>Start a tailored resume</p></article>
-      </section>
+      {loading ? <p>Loading resumes...</p> : (
+        <section className="resume-grid">
+          {resumes.map(resume => (
+            <article className="resume-tile" key={resume.id}>
+              <div className="mini-page"><div></div><b></b><span></span><span></span><span></span></div>
+              <h3>{resume.title}</h3>
+              <p>{resume.targetRole || "No target role"} <em>{resume.status}</em></p>
+              <footer>
+                <span>v{resume.versionNumber}</span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => { edit(resume); navigate(`/editor/${resume.id}`); }}>Edit</button>
+                  {signedIn && <button onClick={() => duplicate(resume)}>Duplicate</button>}
+                  {signedIn && <button onClick={() => remove(resume)}>Delete</button>}
+                </div>
+              </footer>
+            </article>
+          ))}
+          <article className="create-tile" onClick={create}><strong>+</strong><p>{signedIn ? "Start a tailored resume" : "Sign in to create resumes"}</p></article>
+        </section>
+      )}
+      {error && <p className="error">{error}</p>}
     </main>
   );
 }
@@ -201,70 +333,120 @@ function Metric({ label, value, change }: { label: string; value: string; change
   return <article className="metric"><p>{label}</p><strong>{value}</strong><small>{change}</small></article>;
 }
 
-function Editor({ client, signedIn, initial }: { client: ApiClient; signedIn: boolean; initial: Resume }) {
-  const [resume, setResume] = useState(initial);
-  const [selected, setSelected] = useState(initial.sections[1].id);
+function Editor({ client, signedIn, navigate, resumeId }: { client: ApiClient; signedIn: boolean; navigate: (path: string) => void; resumeId: string; }) {
+  const [resume, setResume] = useState<Resume>(sampleResume);
+  const [selected, setSelected] = useState(sampleResume.sections[0].id);
   const [saved, setSaved] = useState("All changes saved");
-  const [dragging, setDragging] = useState<string>();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [jobDescription, setJobDescription] = useState("Lead product designer with design systems, accessibility, user research and measurable product outcomes.");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
   const firstUpdate = useRef(true);
-  const active = resume.sections.find(section => section.id === selected) ?? resume.sections[0];
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      if (resumeId === "demo") {
+        setResume(sampleResume);
+        setSelected(sampleResume.sections[0]?.id ?? "");
+        return;
+      }
+      if (!signedIn) {
+        navigate("/login");
+        return;
+      }
+      setBusy(true);
+      setError("");
+      try {
+        const fetched = await client.getResume(resumeId);
+        if (!active) return;
+        setResume(fetched);
+        setSelected(fetched.sections[0]?.id ?? "");
+      } catch (reason) {
+        if (active) setError(reason instanceof Error ? reason.message : "Could not load resume.");
+      } finally {
+        if (active) setBusy(false);
+      }
+    }
+    load();
+    return () => { active = false; };
+  }, [client, resumeId, signedIn, navigate]);
 
   useEffect(() => {
     if (firstUpdate.current) { firstUpdate.current = false; return; }
+    if (!signedIn || resume.id === "demo") {
+      setSaved("Preview draft");
+      return;
+    }
+
     setSaved("Saving...");
     const timer = window.setTimeout(async () => {
-      if (signedIn && resume.id !== "demo") {
-        try { await client.autosave(resume); setSaved("Saved just now"); } catch { setSaved("Could not save"); }
-      } else setSaved("Preview draft");
+      try {
+        await client.autosave(resume);
+        setSaved("Saved just now");
+      } catch {
+        setSaved("Could not save");
+      }
     }, 650);
     return () => window.clearTimeout(timer);
   }, [client, resume, signedIn]);
 
+  const active = resume.sections.find(section => section.id === selected) ?? resume.sections[0];
+
   function updateContent(content: string) {
-    setResume(current => ({ ...current, sections: current.sections.map(section => section.id === active.id ? { ...section, content } : section) }));
+    setResume(current => ({ ...current, sections: current.sections.map(section => section.id === active?.id ? { ...section, content } : section) }));
   }
+
   function drop(onId: string) {
-    if (!dragging || dragging === onId) return;
+    if (!selected || selected === onId) return;
     setResume(current => {
       const items = [...current.sections];
-      const sourceIndex = items.findIndex(item => item.id === dragging);
+      const sourceIndex = items.findIndex(item => item.id === selected);
       const destinationIndex = items.findIndex(item => item.id === onId);
       const [item] = items.splice(sourceIndex, 1);
       items.splice(destinationIndex, 0, item);
       return { ...current, sections: items.map((section, index) => ({ ...section, order: index })) };
     });
-    setDragging(undefined);
   }
+
   async function analyze() {
-    if (signedIn && resume.id !== "demo") {
-      const queued = await client.analyze(resume.id, jobDescription);
-      setAnalysis(queued);
-      window.setTimeout(async () => setAnalysis(await client.analysis(queued.id)), 1300);
+    if (!signedIn || resume.id === "demo") {
+      setAnalysis({ id: "sample", status: "COMPLETED", atsScore: 92, matchPercentage: 86, result: {
+        missingKeywords: ["workshop facilitation", "WCAG"],
+        suggestions: ["Add an accessibility audit outcome to your experience.", "Name the activation metric baseline in the onboarding bullet."],
+        strongSections: ["Experience"], weakSections: ["Skills"],
+      } });
       return;
     }
-    setAnalysis({ id: "sample", status: "COMPLETED", atsScore: 92, matchPercentage: 86, result: {
-      missingKeywords: ["workshop facilitation", "WCAG"],
-      suggestions: ["Add an accessibility audit outcome to your experience.", "Name the activation metric baseline in the onboarding bullet."],
-      strongSections: ["Experience"], weakSections: ["Skills"],
-    } });
+    setBusy(true);
+    setError("");
+    try {
+      const queued = await client.analyze(resume.id, jobDescription);
+      setAnalysis(queued);
+      const finished = await client.analysis(queued.id);
+      setAnalysis(finished);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not run analysis.");
+    } finally {
+      setBusy(false);
+    }
   }
+
   function addSection() {
     const id = crypto.randomUUID();
-    setResume(current => ({ ...current, sections: [...current.sections,
-      { id, type: "CUSTOM", title: "New section", visible: true, order: current.sections.length, content: "" }] }));
+    setResume(current => ({ ...current, sections: [...current.sections, { id, type: "CUSTOM", title: "New section", visible: true, order: current.sections.length, content: "" }] }));
     setSelected(id);
   }
+
   return (
     <main className="editor">
       <div className="editor-toolbar">
-        <div><button className="back" onClick={() => { location.hash = "/dashboard"; }}>←</button>
+        <div><button className="back" onClick={() => navigate("/dashboard")}>←</button>
           <input className="title-input" value={resume.title} onChange={e => setResume({ ...resume, title: e.target.value })} />
           <span className="save-state">{saved}</span></div>
         <div className="export-actions">
-          {["PDF", "DOCX", "TXT"].map(format => <button key={format} onClick={() => signedIn && resume.id !== "demo" && client.export(resume.id, format)}>{format}</button>)}
-          <button className="primary compact">Share</button>
+          {['pdf', 'docx', 'txt'].map(format => <button key={format} onClick={() => signedIn && resume.id !== "demo" && client.export(resume.id, format)}>{format.toUpperCase()}</button>)}
+          <button className="primary compact" onClick={addSection}>+ Section</button>
         </div>
       </div>
       <div className="editor-workbench">
@@ -272,14 +454,12 @@ function Editor({ client, signedIn, initial }: { client: ApiClient; signedIn: bo
           <header><h2>Sections</h2><button onClick={addSection}>+</button></header>
           {resume.sections.map(section => (
             <button draggable key={section.id} className={selected === section.id ? "section-row active" : "section-row"}
-              onDragStart={() => setDragging(section.id)} onDragOver={event => event.preventDefault()} onDrop={() => drop(section.id)}
-              onClick={() => setSelected(section.id)}>
+              onDragStart={() => setSelected(section.id)} onDragOver={event => event.preventDefault()} onDrop={() => drop(section.id)} onClick={() => setSelected(section.id)}>
               <span className="handle">⋮⋮</span>{section.title}<small>{section.visible ? "On" : "Off"}</small>
             </button>
           ))}
           <div className="palette">
-            <label>Accent color<input type="color" value={resume.theme.primaryColor}
-              onChange={event => setResume({ ...resume, theme: { ...resume.theme, primaryColor: event.target.value } })} /></label>
+            <label>Accent color<input type="color" value={resume.theme.primaryColor} onChange={event => setResume({ ...resume, theme: { ...resume.theme, primaryColor: event.target.value } })} /></label>
             <label>Template<select value={resume.templateCode} onChange={event => setResume({ ...resume, templateCode: event.target.value })}>
               <option value="atlas">Atlas</option><option value="meridian">Meridian</option><option value="boardroom">Boardroom</option>
             </select></label>
@@ -287,19 +467,18 @@ function Editor({ client, signedIn, initial }: { client: ApiClient; signedIn: bo
         </aside>
         <section className="content-panel">
           <p className="eyebrow">Edit content</p>
-          <input className="section-title" value={active.title} onChange={event =>
-            setResume(current => ({ ...current, sections: current.sections.map(item => item.id === active.id ? { ...item, title: event.target.value } : item) }))} />
-          <textarea value={typeof active.content === "string" ? active.content : JSON.stringify(active.content)}
-            onChange={event => updateContent(event.target.value)} />
+          <input className="section-title" value={active?.title ?? ""} onChange={event => setResume(current => ({ ...current, sections: current.sections.map(item => item.id === active?.id ? { ...item, title: event.target.value } : item) }))} />
+          <textarea value={typeof active?.content === "string" ? active?.content : JSON.stringify(active?.content)} onChange={event => updateContent(event.target.value)} />
           <div className="writing-tools">
-            <button>Improve writing</button><button>Shorten</button><button>Quantify impact</button>
+            <button type="button">Improve writing</button><button type="button">Shorten</button><button type="button">Quantify impact</button>
           </div>
         </section>
         <section className="preview-panel"><ResumePage resume={resume} /></section>
         <aside className="analysis-panel">
           <h2>AI analysis</h2>
           <label>Job description<textarea value={jobDescription} onChange={event => setJobDescription(event.target.value)} /></label>
-          <button className="primary full" onClick={analyze}>Analyze match</button>
+          <button className="primary full" onClick={analyze} disabled={busy}>{busy ? "Analyzing..." : "Analyze match"}</button>
+          {error && <p className="error">{error}</p>}
           {analysis?.status === "QUEUED" || analysis?.status === "PROCESSING" ? <p className="processing">Analysis running...</p> : analysis?.result && (
             <div className="analysis-result">
               <div className="score"><strong>{analysis.atsScore}</strong><span>ATS score</span><b>{analysis.matchPercentage}% match</b></div>
@@ -357,11 +536,11 @@ function Pricing({ navigate }: { navigate: (path: string) => void }) {
       <div className="billing-toggle">Monthly <span>Yearly · save 20%</span></div>
       <section>
         {plans.map(plan => <article key={plan.name} className={plan.featured ? "featured" : ""}>
-          {plan.featured && <label>Most popular</label>}<h2>{plan.name}</h2><strong>{plan.price}</strong>{plan.price.startsWith("$") && <small>/ month</small>}
+          {plan.featured && <label>Most popular</label>}
+          <h2>{plan.name}</h2>
+          <strong>{plan.price}</strong>{plan.price.startsWith("$") && <small>/ month</small>}
           {plan.features.map(feature => <p key={feature}>✓ {feature}</p>)}
-          <button className={plan.featured ? "primary full" : "secondary full"} onClick={() => navigate("/login")}>
-            {plan.name === "Enterprise" ? "Contact sales" : `Choose ${plan.name}`}
-          </button>
+          <button className={plan.featured ? "primary full" : "secondary full"} onClick={() => navigate("/login")}>{plan.name === "Enterprise" ? "Contact sales" : `Choose ${plan.name}`}</button>
         </article>)}
       </section>
     </main>

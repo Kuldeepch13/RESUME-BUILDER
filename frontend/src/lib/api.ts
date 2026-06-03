@@ -33,16 +33,38 @@ export type Analysis = {
   };
 };
 
+export type UserProfile = {
+  id: string;
+  email: string;
+  displayName: string;
+  role: string;
+  emailVerified: boolean;
+};
+
 export type AuthResponse = {
   accessToken: string;
   refreshToken: string;
-  user: { displayName: string; role: string };
+  expiresInSeconds: number;
+  user: UserProfile;
+};
+
+export type Page<T> = {
+  content: T[];
+  totalElements: number;
+  totalPages: number;
+  number: number;
+  size: number;
 };
 
 const baseUrl = import.meta.env.VITE_API_URL ?? "";
 
+function storageKey(key: string) {
+  return `atsforge:${key}`;
+}
+
 export class ApiClient {
-  private token = localStorage.getItem("atsforge_access_token");
+  private token = localStorage.getItem(storageKey("access_token"));
+  private refreshToken = localStorage.getItem(storageKey("refresh_token"));
 
   authenticated() {
     return Boolean(this.token);
@@ -53,20 +75,46 @@ export class ApiClient {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
-    this.token = result.accessToken;
-    localStorage.setItem("atsforge_access_token", result.accessToken);
-    localStorage.setItem("atsforge_refresh_token", result.refreshToken);
+    this.saveAuth(result.accessToken, result.refreshToken);
     return result;
   }
 
-  logout() {
-    this.token = null;
-    localStorage.removeItem("atsforge_access_token");
-    localStorage.removeItem("atsforge_refresh_token");
+  async register(email: string, password: string, displayName: string) {
+    return this.request<{ message: string }>("/api/v1/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password, displayName }),
+    });
+  }
+
+  async logout() {
+    if (this.refreshToken) {
+      await fetch(baseUrl + "/api/v1/auth/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken: this.refreshToken }),
+      }).catch(() => null);
+    }
+    this.clearAuth();
+  }
+
+  async refresh() {
+    if (!this.refreshToken) {
+      throw new Error("Authentication expired.");
+    }
+    const result = await this.request<AuthResponse>("/api/v1/auth/refresh", {
+      method: "POST",
+      body: JSON.stringify({ refreshToken: this.refreshToken }),
+    });
+    this.saveAuth(result.accessToken, result.refreshToken);
+    return result;
   }
 
   listResumes() {
-    return this.request<{ content: Resume[] }>("/api/v1/resumes?size=20&sort=updatedAt,desc");
+    return this.request<Page<Resume>>("/api/v1/resumes?size=20&sort=updatedAt,desc");
+  }
+
+  getResume(id: string) {
+    return this.request<Resume>(`/api/v1/resumes/${id}`);
   }
 
   createResume(title: string) {
@@ -89,6 +137,14 @@ export class ApiClient {
     });
   }
 
+  duplicateResume(id: string) {
+    return this.request<Resume>(`/api/v1/resumes/${id}/duplicate`, { method: "POST" });
+  }
+
+  deleteResume(id: string) {
+    return this.request<void>(`/api/v1/resumes/${id}`, { method: "DELETE" });
+  }
+
   analyze(id: string, jobDescription: string) {
     return this.request<Analysis>(`/api/v1/resumes/${id}/analyses`, {
       method: "POST",
@@ -101,12 +157,18 @@ export class ApiClient {
   }
 
   async export(id: string, format: string) {
+    if (!this.token) {
+      throw new Error("You must be signed in to export.");
+    }
     const response = await fetch(`${baseUrl}/api/v1/resumes/${id}/export?format=${format}`, {
       headers: { Authorization: `Bearer ${this.token}` },
     });
-    if (!response.ok) throw new Error("Export failed.");
+    if (!response.ok) {
+      const problem = await response.text().catch(() => "Export failed.");
+      throw new Error(problem || "Export failed.");
+    }
     const blob = await response.blob();
-    const disposition = response.headers.get("content-disposition") ?? `filename="resume.${format}"`;
+    const disposition = response.headers.get("content-disposition") ?? `filename=resume.${format}`;
     const filename = disposition.match(/filename="(.+)"/)?.[1] ?? `resume.${format}`;
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -115,19 +177,40 @@ export class ApiClient {
     URL.revokeObjectURL(link.href);
   }
 
-  private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
-    const response = await fetch(baseUrl + path, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
-        ...options.headers,
-      },
-    });
+  private async request<T>(path: string, options: RequestInit = {}, retry = true): Promise<T> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(options.headers as Record<string, string>),
+    };
+    if (this.token) {
+      headers.Authorization = `Bearer ${this.token}`;
+    }
+
+    const response = await fetch(baseUrl + path, { ...options, headers });
+    if (response.status === 401 && retry && this.refreshToken) {
+      await this.refresh();
+      return this.request(path, options, false);
+    }
+
     if (!response.ok) {
       const problem = await response.json().catch(() => ({ message: "Request failed." }));
       throw new Error(problem.message ?? "Request failed.");
     }
+
     return response.json() as Promise<T>;
+  }
+
+  private saveAuth(accessToken: string, refreshToken: string) {
+    this.token = accessToken;
+    this.refreshToken = refreshToken;
+    localStorage.setItem(storageKey("access_token"), accessToken);
+    localStorage.setItem(storageKey("refresh_token"), refreshToken);
+  }
+
+  private clearAuth() {
+    this.token = null;
+    this.refreshToken = null;
+    localStorage.removeItem(storageKey("access_token"));
+    localStorage.removeItem(storageKey("refresh_token"));
   }
 }
